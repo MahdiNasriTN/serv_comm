@@ -883,7 +883,10 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         
         // Store voice data and add click listener
         final String voiceData = message.getContent();
-        listenButton.addActionListener(e -> playVoiceMessage(voiceData));
+        listenButton.addActionListener(e -> {
+            System.out.println("[ChatClientGUI] Listen button clicked!");
+            playVoiceMessage(voiceData);
+        });
         
         // Insert button into chat area
         chatArea.setCaretPosition(chatDocument.getLength());
@@ -898,23 +901,44 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private void playVoiceMessage(String base64Audio) {
         new Thread(() -> {
             try {
+                System.out.println("[ChatClientGUI] Starting voice playback...");
                 byte[] audioBytes = Base64.getDecoder().decode(base64Audio);
+                System.out.println("[ChatClientGUI] Decoded audio: " + audioBytes.length + " bytes");
                 
                 // Audio format must match recording format
                 AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
                 DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
                 
+                if (!AudioSystem.isLineSupported(info)) {
+                    System.err.println("[ChatClientGUI] Audio line not supported!");
+                    SwingUtilities.invokeLater(() -> 
+                        showError("Audio playback not supported on this system"));
+                    return;
+                }
+                
+                System.out.println("[ChatClientGUI] Getting audio line...");
                 SourceDataLine speaker = (SourceDataLine) AudioSystem.getLine(info);
+                System.out.println("[ChatClientGUI] Opening speaker...");
                 speaker.open(format);
+                System.out.println("[ChatClientGUI] Starting playback...");
                 speaker.start();
                 
-                // Play audio
-                speaker.write(audioBytes, 0, audioBytes.length);
+                // Play audio in chunks for better responsiveness
+                int chunkSize = 4096;
+                int offset = 0;
+                while (offset < audioBytes.length) {
+                    int bytesToWrite = Math.min(chunkSize, audioBytes.length - offset);
+                    speaker.write(audioBytes, offset, bytesToWrite);
+                    offset += bytesToWrite;
+                }
                 
+                System.out.println("[ChatClientGUI] Draining speaker...");
                 speaker.drain();
                 speaker.close();
+                System.out.println("[ChatClientGUI] Voice playback completed!");
                 
             } catch (Exception e) {
+                e.printStackTrace();
                 SwingUtilities.invokeLater(() -> 
                     showError("Error playing voice message: " + e.getMessage()));
             }
