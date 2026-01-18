@@ -166,6 +166,29 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         chatArea.setFont(new Font("Arial", Font.PLAIN, 13));
         chatDocument = chatArea.getStyledDocument();
         
+        // Add mouse listener for clickable links (files and voice messages)
+        chatArea.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int pos = chatArea.viewToModel2D(e.getPoint());
+                Element element = chatDocument.getCharacterElement(pos);
+                AttributeSet as = element.getAttributes();
+                
+                // Handle file download links
+                if (as.getAttribute("fileData") != null) {
+                    String fileData = (String) as.getAttribute("fileData");
+                    String fileName = (String) as.getAttribute("fileName");
+                    downloadFile(fileData, fileName);
+                }
+                
+                // Handle voice playback links
+                if (as.getAttribute("voiceData") != null) {
+                    String voiceData = (String) as.getAttribute("voiceData");
+                    playVoiceMessage(voiceData);
+                }
+            }
+        });
+        
         JScrollPane scrollPane = new JScrollPane(chatArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
         
@@ -788,22 +811,6 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         
         chatDocument.insertString(chatDocument.getLength(), "[Download]", linkAttrs);
         chatDocument.insertString(chatDocument.getLength(), "\n", attrs);
-        
-        // Add mouse listener for download
-        chatArea.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int pos = chatArea.viewToModel2D(e.getPoint());
-                Element element = chatDocument.getCharacterElement(pos);
-                AttributeSet as = element.getAttributes();
-                
-                if (as.getAttribute("fileData") != null) {
-                    String fileData = (String) as.getAttribute("fileData");
-                    String fileName = (String) as.getAttribute("fileName");
-                    downloadFile(fileData, fileName);
-                }
-            }
-        });
     }
     
     /**
@@ -864,30 +871,25 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         }
         chatDocument.insertString(chatDocument.getLength(), voiceInfo, attrs);
         
-        // Add clickable "Play" link
-        SimpleAttributeSet playAttrs = new SimpleAttributeSet();
-        StyleConstants.setForeground(playAttrs, new Color(76, 175, 80));
-        StyleConstants.setUnderline(playAttrs, true);
-        StyleConstants.setBold(playAttrs, true);
-        playAttrs.addAttribute("voiceData", message.getContent());
+        // Create and add "Listen" button
+        JButton listenButton = new JButton("Listen");
+        listenButton.setBackground(new Color(76, 175, 80));
+        listenButton.setForeground(Color.WHITE);
+        listenButton.setFocusPainted(false);
+        listenButton.setOpaque(true);
+        listenButton.setBorderPainted(false);
+        listenButton.setFont(new Font("Arial", Font.BOLD, 11));
+        listenButton.setMargin(new Insets(2, 8, 2, 8));
         
-        chatDocument.insertString(chatDocument.getLength(), "[▶ Play]", playAttrs);
+        // Store voice data and add click listener
+        final String voiceData = message.getContent();
+        listenButton.addActionListener(e -> playVoiceMessage(voiceData));
+        
+        // Insert button into chat area
+        chatArea.setCaretPosition(chatDocument.getLength());
+        chatArea.insertComponent(listenButton);
+        
         chatDocument.insertString(chatDocument.getLength(), "\n", attrs);
-        
-        // Add mouse listener for playback
-        chatArea.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int pos = chatArea.viewToModel2D(e.getPoint());
-                Element element = chatDocument.getCharacterElement(pos);
-                AttributeSet as = element.getAttributes();
-                
-                if (as.getAttribute("voiceData") != null) {
-                    String voiceData = (String) as.getAttribute("voiceData");
-                    playVoiceMessage(voiceData);
-                }
-            }
-        });
     }
     
     /**
