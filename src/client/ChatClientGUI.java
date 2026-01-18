@@ -7,7 +7,12 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
+import java.io.*;
+import java.nio.file.Files;
+import java.util.Base64;
 import java.util.List;
+import javax.imageio.ImageIO;
 
 /**
  * ChatClientGUI - Graphical User Interface for the chat client.
@@ -27,11 +32,15 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private StyledDocument chatDocument;
     private JTextField messageField;
     private JButton sendButton;
+    private JButton imageButton;
+    private JButton fileButton;
+    private JButton allButton;
     
     private JList<String> userList;
     private DefaultListModel<String> userListModel;
     
     private JLabel statusLabel;
+    private String privateMessageRecipient; // Current private message recipient
     
     // Client instance
     private ChatClient client;
@@ -112,6 +121,8 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         connectButton.setBackground(new Color(76, 175, 80));
         connectButton.setForeground(Color.WHITE);
         connectButton.setFocusPainted(false);
+        connectButton.setOpaque(true);
+        connectButton.setBorderPainted(false);
         connectButton.addActionListener(e -> connectToServer());
         panel.add(connectButton);
         
@@ -120,6 +131,8 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         disconnectButton.setBackground(new Color(244, 67, 54));
         disconnectButton.setForeground(Color.WHITE);
         disconnectButton.setFocusPainted(false);
+        disconnectButton.setOpaque(true);
+        disconnectButton.setBorderPainted(false);
         disconnectButton.setEnabled(false);
         disconnectButton.addActionListener(e -> disconnectFromServer());
         panel.add(disconnectButton);
@@ -165,18 +178,55 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         messageField.setFont(new Font("Arial", Font.PLAIN, 13));
         messageField.addActionListener(e -> sendMessage());
         
+        // Buttons panel
+        JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        
+        // All button (exit private chat)
+        allButton = new JButton("All");
+        allButton.setBackground(new Color(96, 125, 139));
+        allButton.setForeground(Color.WHITE);
+        allButton.setFocusPainted(false);
+        allButton.setOpaque(true);
+        allButton.setBorderPainted(false);
+        allButton.addActionListener(e -> exitPrivateChat());
+        allButton.setVisible(false); // Hidden by default
+        buttonsPanel.add(allButton);
+        
+        // Image button
+        imageButton = new JButton("📷 Image");
+        imageButton.setBackground(new Color(156, 39, 176));
+        imageButton.setForeground(Color.WHITE);
+        imageButton.setFocusPainted(false);
+        imageButton.setOpaque(true);
+        imageButton.setBorderPainted(false);
+        imageButton.addActionListener(e -> selectAndSendImage());
+        buttonsPanel.add(imageButton);
+        
+        // File button
+        fileButton = new JButton("📎 File");
+        fileButton.setBackground(new Color(255, 152, 0));
+        fileButton.setForeground(Color.WHITE);
+        fileButton.setFocusPainted(false);
+        fileButton.setOpaque(true);
+        fileButton.setBorderPainted(false);
+        fileButton.addActionListener(e -> selectAndSendFile());
+        buttonsPanel.add(fileButton);
+        
         // Send button
         sendButton = new JButton("Send");
         sendButton.setBackground(new Color(33, 150, 243));
         sendButton.setForeground(Color.WHITE);
         sendButton.setFocusPainted(false);
+        sendButton.setOpaque(true);
+        sendButton.setBorderPainted(false);
         sendButton.addActionListener(e -> sendMessage());
+        buttonsPanel.add(sendButton);
         
         panel.add(messageField, BorderLayout.CENTER);
-        panel.add(sendButton, BorderLayout.EAST);
+        panel.add(buttonsPanel, BorderLayout.EAST);
         
         // Add instruction label
-        JLabel instructionLabel = new JLabel("Tip: Use /msg username message for private messages");
+        JLabel instructionLabel = new JLabel("Tip: Double-click a user to chat privately");
         instructionLabel.setFont(new Font("Arial", Font.ITALIC, 11));
         instructionLabel.setForeground(Color.GRAY);
         panel.add(instructionLabel, BorderLayout.NORTH);
@@ -205,8 +255,7 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
                 if (e.getClickCount() == 2) {
                     String selectedUser = userList.getSelectedValue();
                     if (selectedUser != null && !selectedUser.equals(client.getUsername())) {
-                        messageField.setText("/msg " + selectedUser + " ");
-                        messageField.requestFocus();
+                        startPrivateChat(selectedUser);
                     }
                 }
             }
@@ -286,18 +335,141 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
             return;
         }
         
-        // Display sent message in chat (if not a private message command)
-        if (!Protocol.isPrivateMessage(message)) {
-            Message sentMessage = new Message(client.getUsername(), message, Message.MessageType.NORMAL);
+        // Check if in private chat mode
+        if (privateMessageRecipient != null) {
+            // Send as private message
+            client.sendPrivateMessage(privateMessageRecipient, message);
+            
+            // Display sent private message
+            Message sentMessage = new Message(client.getUsername(), message, Message.MessageType.PRIVATE);
+            sentMessage.setRecipient(privateMessageRecipient);
             displayMessage(sentMessage, true);
+        } else {
+            // Display sent message in chat (if not a private message command)
+            if (!Protocol.isPrivateMessage(message)) {
+                Message sentMessage = new Message(client.getUsername(), message, Message.MessageType.NORMAL);
+                displayMessage(sentMessage, true);
+            }
+            
+            // Send to server
+            client.sendMessage(message);
         }
-        
-        // Send to server
-        client.sendMessage(message);
         
         // Clear input field
         messageField.setText("");
         messageField.requestFocus();
+    }
+    
+    /**
+     * Start private chat mode with a specific user
+     */
+    private void startPrivateChat(String username) {
+        privateMessageRecipient = username;
+        messageField.setBorder(BorderFactory.createLineBorder(COLOR_PRIVATE, 2));
+        
+        // Show notification
+        Message systemMsg = new Message("System", 
+            "Private chat mode with " + username + ". Click 'All' button to exit.",
+            Message.MessageType.SYSTEM);
+        displayMessage(systemMsg, false);
+        
+        // Update send button
+        sendButton.setText("Send to " + username);
+        sendButton.setBackground(COLOR_PRIVATE);
+        
+        // Show All button
+        allButton.setVisible(true);
+        
+        messageField.requestFocus();
+    }
+    
+    /**
+     * Exit private chat mode
+     */
+    private void exitPrivateChat() {
+        privateMessageRecipient = null;
+        messageField.setBorder(UIManager.getBorder("TextField.border"));
+        sendButton.setText("Send");
+        sendButton.setBackground(new Color(33, 150, 243));
+        
+        // Hide All button
+        allButton.setVisible(false);
+        
+        // Show notification
+        Message systemMsg = new Message("System", 
+            "Back to all chat mode",
+            Message.MessageType.SYSTEM);
+        displayMessage(systemMsg, false);
+    }
+    
+    /**
+     * Select and send an image file
+     */
+    private void selectAndSendImage() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+            "Image Files", "jpg", "jpeg", "png", "gif", "bmp"));
+        
+        int result = fileChooser.showOpenDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            
+            // Check file size (limit to 5MB)
+            if (file.length() > 5 * 1024 * 1024) {
+                showError("Image file is too large. Maximum size is 5MB.");
+                return;
+            }
+            
+            try {
+                byte[] fileBytes = Files.readAllBytes(file.toPath());
+                String base64Data = Base64.getEncoder().encodeToString(fileBytes);
+                
+                // Send image
+                client.sendImage(base64Data, file.getName(), privateMessageRecipient);
+                
+                // Display sent image
+                Message imageMessage = new Message(client.getUsername(), base64Data, Message.MessageType.IMAGE);
+                imageMessage.setFileName(file.getName());
+                displayMessage(imageMessage, true);
+                
+            } catch (IOException e) {
+                showError("Error reading image file: " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Select and send a file
+     */
+    private void selectAndSendFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        
+        int result = fileChooser.showOpenDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            
+            // Check file size (limit to 10MB)
+            if (file.length() > 10 * 1024 * 1024) {
+                showError("File is too large. Maximum size is 10MB.");
+                return;
+            }
+            
+            try {
+                byte[] fileBytes = Files.readAllBytes(file.toPath());
+                String base64Data = Base64.getEncoder().encodeToString(fileBytes);
+                
+                // Send file
+                client.sendFile(base64Data, file.getName(), privateMessageRecipient);
+                
+                // Display sent file
+                Message fileMessage = new Message(client.getUsername(), base64Data, Message.MessageType.FILE);
+                fileMessage.setFileName(file.getName());
+                displayMessage(fileMessage, true);
+                
+            } catch (IOException e) {
+                showError("Error reading file: " + e.getMessage());
+            }
+        }
     }
     
     /**
@@ -309,50 +481,179 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private void displayMessage(Message message, boolean isSent) {
         SwingUtilities.invokeLater(() -> {
             try {
-                // Create styled attributes
-                SimpleAttributeSet attrs = new SimpleAttributeSet();
-                
-                // Set color based on message type
-                if (message.getType() == Message.MessageType.SYSTEM) {
-                    StyleConstants.setForeground(attrs, COLOR_SYSTEM);
-                    StyleConstants.setItalic(attrs, true);
-                } else if (message.getType() == Message.MessageType.PRIVATE) {
-                    StyleConstants.setForeground(attrs, COLOR_PRIVATE);
-                    StyleConstants.setBold(attrs, true);
-                } else if (isSent) {
-                    StyleConstants.setForeground(attrs, COLOR_SENT);
+                // Handle different message types
+                if (message.getType() == Message.MessageType.IMAGE) {
+                    displayImageMessage(message, isSent);
+                } else if (message.getType() == Message.MessageType.FILE) {
+                    displayFileMessage(message, isSent);
                 } else {
-                    StyleConstants.setForeground(attrs, COLOR_RECEIVED);
+                    displayTextMessage(message, isSent);
                 }
-                
-                // Format the message
-                String displayText;
-                if (message.getType() == Message.MessageType.SYSTEM) {
-                    displayText = String.format("[%s] %s\n", 
-                        message.getFormattedTimestamp(), 
-                        message.getContent());
-                } else if (message.getType() == Message.MessageType.PRIVATE) {
-                    displayText = String.format("[%s] [PRIVATE from %s] %s\n", 
-                        message.getFormattedTimestamp(), 
-                        message.getSender(), 
-                        message.getContent());
-                } else {
-                    displayText = String.format("[%s] %s: %s\n", 
-                        message.getFormattedTimestamp(), 
-                        message.getSender(), 
-                        message.getContent());
-                }
-                
-                // Insert the text
-                chatDocument.insertString(chatDocument.getLength(), displayText, attrs);
                 
                 // Auto-scroll to bottom
                 chatArea.setCaretPosition(chatDocument.getLength());
                 
-            } catch (BadLocationException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         });
+    }
+    
+    /**
+     * Display a text message
+     */
+    private void displayTextMessage(Message message, boolean isSent) throws BadLocationException {
+        // Create styled attributes
+        SimpleAttributeSet attrs = new SimpleAttributeSet();
+        
+        // Set color based on message type
+        if (message.getType() == Message.MessageType.SYSTEM) {
+            StyleConstants.setForeground(attrs, COLOR_SYSTEM);
+            StyleConstants.setItalic(attrs, true);
+        } else if (message.getType() == Message.MessageType.PRIVATE) {
+            StyleConstants.setForeground(attrs, COLOR_PRIVATE);
+            StyleConstants.setBold(attrs, true);
+        } else if (isSent) {
+            StyleConstants.setForeground(attrs, COLOR_SENT);
+        } else {
+            StyleConstants.setForeground(attrs, COLOR_RECEIVED);
+        }
+        
+        // Format the message
+        String displayText;
+        if (message.getType() == Message.MessageType.SYSTEM) {
+            displayText = String.format("[%s] %s\n", 
+                message.getFormattedTimestamp(), 
+                message.getContent());
+        } else if (message.getType() == Message.MessageType.PRIVATE) {
+            String direction = isSent ? "to" : "from";
+            String otherUser = isSent ? message.getRecipient() : message.getSender();
+            displayText = String.format("[%s] [PRIVATE %s %s] %s\n", 
+                message.getFormattedTimestamp(), 
+                direction,
+                otherUser,
+                message.getContent());
+        } else {
+            displayText = String.format("[%s] %s: %s\n", 
+                message.getFormattedTimestamp(), 
+                message.getSender(), 
+                message.getContent());
+        }
+        
+        // Insert the text
+        chatDocument.insertString(chatDocument.getLength(), displayText, attrs);
+    }
+    
+    /**
+     * Display an image message
+     */
+    private void displayImageMessage(Message message, boolean isSent) throws BadLocationException {
+        // Display header
+        SimpleAttributeSet attrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
+        StyleConstants.setBold(attrs, true);
+        
+        String header = String.format("[%s] %s sent an image: %s\n",
+            message.getFormattedTimestamp(),
+            message.getSender(),
+            message.getFileName());
+        chatDocument.insertString(chatDocument.getLength(), header, attrs);
+        
+        // Display image
+        try {
+            byte[] imageBytes = Base64.getDecoder().decode(message.getContent());
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(imageBytes));
+            
+            if (img != null) {
+                // Scale image if too large
+                int maxWidth = 300;
+                int maxHeight = 300;
+                if (img.getWidth() > maxWidth || img.getHeight() > maxHeight) {
+                    double scale = Math.min((double)maxWidth / img.getWidth(), (double)maxHeight / img.getHeight());
+                    int newWidth = (int)(img.getWidth() * scale);
+                    int newHeight = (int)(img.getHeight() * scale);
+                    
+                    Image scaledImg = img.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH);
+                    BufferedImage bufferedScaled = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g2d = bufferedScaled.createGraphics();
+                    g2d.drawImage(scaledImg, 0, 0, null);
+                    g2d.dispose();
+                    img = bufferedScaled;
+                }
+                
+                // Insert image
+                chatArea.setCaretPosition(chatDocument.getLength());
+                chatArea.insertIcon(new ImageIcon(img));
+                chatDocument.insertString(chatDocument.getLength(), "\n", attrs);
+            }
+        } catch (Exception e) {
+            chatDocument.insertString(chatDocument.getLength(), "  [Error displaying image]\n", attrs);
+        }
+    }
+    
+    /**
+     * Display a file message
+     */
+    private void displayFileMessage(Message message, boolean isSent) throws BadLocationException {
+        // Display file info
+        SimpleAttributeSet attrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
+        StyleConstants.setBold(attrs, true);
+        
+        String fileInfo = String.format("[%s] %s sent a file: %s ",
+            message.getFormattedTimestamp(),
+            message.getSender(),
+            message.getFileName());
+        chatDocument.insertString(chatDocument.getLength(), fileInfo, attrs);
+        
+        // Add clickable "Download" link
+        SimpleAttributeSet linkAttrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(linkAttrs, Color.BLUE);
+        StyleConstants.setUnderline(linkAttrs, true);
+        linkAttrs.addAttribute("fileData", message.getContent());
+        linkAttrs.addAttribute("fileName", message.getFileName());
+        
+        chatDocument.insertString(chatDocument.getLength(), "[Download]", linkAttrs);
+        chatDocument.insertString(chatDocument.getLength(), "\n", attrs);
+        
+        // Add mouse listener for download
+        chatArea.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int pos = chatArea.viewToModel2D(e.getPoint());
+                Element element = chatDocument.getCharacterElement(pos);
+                AttributeSet as = element.getAttributes();
+                
+                if (as.getAttribute("fileData") != null) {
+                    String fileData = (String) as.getAttribute("fileData");
+                    String fileName = (String) as.getAttribute("fileName");
+                    downloadFile(fileData, fileName);
+                }
+            }
+        });
+    }
+    
+    /**
+     * Download a file from base64 data
+     */
+    private void downloadFile(String base64Data, String fileName) {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setSelectedFile(new File(fileName));
+        
+        int result = fileChooser.showSaveDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            try {
+                byte[] fileBytes = Base64.getDecoder().decode(base64Data);
+                Files.write(fileChooser.getSelectedFile().toPath(), fileBytes);
+                
+                JOptionPane.showMessageDialog(this, 
+                    "File saved successfully!", 
+                    "Success", 
+                    JOptionPane.INFORMATION_MESSAGE);
+            } catch (IOException e) {
+                showError("Error saving file: " + e.getMessage());
+            }
+        }
     }
     
     /**
@@ -363,8 +664,17 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private void setChatComponentsEnabled(boolean enabled) {
         messageField.setEnabled(enabled);
         sendButton.setEnabled(enabled);
+        imageButton.setEnabled(enabled);
+        fileButton.setEnabled(enabled);
+        allButton.setEnabled(enabled);
         chatArea.setEnabled(enabled);
         userList.setEnabled(enabled);
+        
+        // Hide All button when disabled
+        if (!enabled) {
+            allButton.setVisible(false);
+            exitPrivateChat();
+        }
     }
     
     /**
@@ -393,6 +703,9 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
                 statusLabel.setText("Connected");
                 statusLabel.setForeground(new Color(76, 175, 80));
                 
+                // Update window title with username
+                setTitle("Chat Application - " + client.getUsername());
+                
                 connectButton.setEnabled(false);
                 disconnectButton.setEnabled(true);
                 
@@ -414,6 +727,9 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
                 // Disconnected
                 statusLabel.setText("Not connected");
                 statusLabel.setForeground(Color.RED);
+                
+                // Reset window title
+                setTitle("Chat Application");
                 
                 connectButton.setEnabled(true);
                 disconnectButton.setEnabled(false);

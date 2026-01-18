@@ -224,6 +224,8 @@ public class ChatClient {
                 case SYSTEM:
                 case JOIN:
                 case LEAVE:
+                case IMAGE:
+                case FILE:
                     // Notify listener
                     if (messageListener != null) {
                         messageListener.onMessageReceived(message);
