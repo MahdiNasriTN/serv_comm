@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.util.Base64;
 import java.util.List;
 import javax.imageio.ImageIO;
+import javax.sound.sampled.*;
 
 /**
  * ChatClientGUI - Graphical User Interface for the chat client.
@@ -35,12 +36,19 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private JButton imageButton;
     private JButton fileButton;
     private JButton allButton;
+    private JButton voiceButton;
     
     private JList<String> userList;
     private DefaultListModel<String> userListModel;
     
     private JLabel statusLabel;
     private String privateMessageRecipient; // Current private message recipient
+    
+    // Voice recording
+    private TargetDataLine microphone;
+    private ByteArrayOutputStream recordedAudio;
+    private boolean isRecording = false;
+    private long recordingStartTime;
     
     // Client instance
     private ChatClient client;
@@ -211,6 +219,32 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         fileButton.setBorderPainted(false);
         fileButton.addActionListener(e -> selectAndSendFile());
         buttonsPanel.add(fileButton);
+        
+        // Voice button (press and hold to record)
+        voiceButton = new JButton("🎤 Voice");
+        voiceButton.setBackground(new Color(76, 175, 80));
+        voiceButton.setForeground(Color.WHITE);
+        voiceButton.setFocusPainted(false);
+        voiceButton.setOpaque(true);
+        voiceButton.setBorderPainted(false);
+        
+        // Add mouse listeners for press-and-hold
+        voiceButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (client.isConnected()) {
+                    startRecording();
+                }
+            }
+            
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (isRecording) {
+                    stopRecording();
+                }
+            }
+        });
+        buttonsPanel.add(voiceButton);
         
         // Send button
         sendButton = new JButton("Send");
@@ -473,6 +507,103 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     }
     
     /**
+     * Start recording voice message
+     */
+    private void startRecording() {
+        try {
+            // Audio format: 16kHz, 16-bit, mono
+            AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+            DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+            
+            if (!AudioSystem.isLineSupported(info)) {
+                showError("Microphone not supported");
+                return;
+            }
+            
+            microphone = (TargetDataLine) AudioSystem.getLine(info);
+            microphone.open(format);
+            microphone.start();
+            
+            recordedAudio = new ByteArrayOutputStream();
+            isRecording = true;
+            recordingStartTime = System.currentTimeMillis();
+            
+            // Change button appearance
+            voiceButton.setBackground(Color.RED);
+            voiceButton.setText("🔴 Recording...");
+            
+            // Start recording thread
+            new Thread(() -> {
+                byte[] buffer = new byte[1024];
+                while (isRecording) {
+                    int bytesRead = microphone.read(buffer, 0, buffer.length);
+                    if (bytesRead > 0) {
+                        recordedAudio.write(buffer, 0, bytesRead);
+                    }
+                }
+            }).start();
+            
+        } catch (LineUnavailableException e) {
+            showError("Cannot access microphone: " + e.getMessage());
+            isRecording = false;
+        }
+    }
+    
+    /**
+     * Stop recording and send voice message
+     */
+    private void stopRecording() {
+        if (!isRecording) return;
+        
+        isRecording = false;
+        
+        // Calculate duration
+        long duration = (System.currentTimeMillis() - recordingStartTime) / 1000;
+        
+        // Reset button
+        voiceButton.setBackground(new Color(76, 175, 80));
+        voiceButton.setText("🎤 Voice");
+        
+        // Stop microphone
+        if (microphone != null) {
+            microphone.stop();
+            microphone.close();
+        }
+        
+        // Check minimum duration (at least 1 second)
+        if (duration < 1) {
+            showError("Voice message too short (minimum 1 second)");
+            return;
+        }
+        
+        // Check maximum duration (60 seconds)
+        if (duration > 60) {
+            showError("Voice message too long (maximum 60 seconds)");
+            return;
+        }
+        
+        try {
+            // Convert to base64
+            byte[] audioBytes = recordedAudio.toByteArray();
+            String base64Audio = Base64.getEncoder().encodeToString(audioBytes);
+            
+            // Send voice message
+            client.sendVoice(base64Audio, (int) duration, privateMessageRecipient);
+            
+            // Display sent voice message
+            Message voiceMessage = new Message(client.getUsername(), base64Audio, Message.MessageType.VOICE);
+            voiceMessage.setFileName(duration + "s");
+            if (privateMessageRecipient != null) {
+                voiceMessage.setRecipient(privateMessageRecipient);
+            }
+            displayMessage(voiceMessage, true);
+            
+        } catch (Exception e) {
+            showError("Error sending voice message: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Display a message in the chat area
      * 
      * @param message The message to display
@@ -486,6 +617,8 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
                     displayImageMessage(message, isSent);
                 } else if (message.getType() == Message.MessageType.FILE) {
                     displayFileMessage(message, isSent);
+                } else if (message.getType() == Message.MessageType.VOICE) {
+                    displayVoiceMessage(message, isSent);
                 } else {
                     displayTextMessage(message, isSent);
                 }
@@ -550,13 +683,33 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private void displayImageMessage(Message message, boolean isSent) throws BadLocationException {
         // Display header
         SimpleAttributeSet attrs = new SimpleAttributeSet();
-        StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
-        StyleConstants.setBold(attrs, true);
         
-        String header = String.format("[%s] %s sent an image: %s\n",
-            message.getFormattedTimestamp(),
-            message.getSender(),
-            message.getFileName());
+        // Check if it's a private image
+        boolean isPrivate = message.getRecipient() != null && !message.getRecipient().isEmpty();
+        
+        if (isPrivate) {
+            StyleConstants.setForeground(attrs, COLOR_PRIVATE);
+            StyleConstants.setBold(attrs, true);
+        } else {
+            StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
+            StyleConstants.setBold(attrs, true);
+        }
+        
+        String header;
+        if (isPrivate) {
+            String direction = isSent ? "to" : "from";
+            String otherUser = isSent ? message.getRecipient() : message.getSender();
+            header = String.format("[%s] [PRIVATE %s %s] Image: %s\n",
+                message.getFormattedTimestamp(),
+                direction,
+                otherUser,
+                message.getFileName());
+        } else {
+            header = String.format("[%s] %s sent an image: %s\n",
+                message.getFormattedTimestamp(),
+                message.getSender(),
+                message.getFileName());
+        }
         chatDocument.insertString(chatDocument.getLength(), header, attrs);
         
         // Display image
@@ -597,13 +750,33 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     private void displayFileMessage(Message message, boolean isSent) throws BadLocationException {
         // Display file info
         SimpleAttributeSet attrs = new SimpleAttributeSet();
-        StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
-        StyleConstants.setBold(attrs, true);
         
-        String fileInfo = String.format("[%s] %s sent a file: %s ",
-            message.getFormattedTimestamp(),
-            message.getSender(),
-            message.getFileName());
+        // Check if it's a private file
+        boolean isPrivate = message.getRecipient() != null && !message.getRecipient().isEmpty();
+        
+        if (isPrivate) {
+            StyleConstants.setForeground(attrs, COLOR_PRIVATE);
+            StyleConstants.setBold(attrs, true);
+        } else {
+            StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
+            StyleConstants.setBold(attrs, true);
+        }
+        
+        String fileInfo;
+        if (isPrivate) {
+            String direction = isSent ? "to" : "from";
+            String otherUser = isSent ? message.getRecipient() : message.getSender();
+            fileInfo = String.format("[%s] [PRIVATE %s %s] File: %s ",
+                message.getFormattedTimestamp(),
+                direction,
+                otherUser,
+                message.getFileName());
+        } else {
+            fileInfo = String.format("[%s] %s sent a file: %s ",
+                message.getFormattedTimestamp(),
+                message.getSender(),
+                message.getFileName());
+        }
         chatDocument.insertString(chatDocument.getLength(), fileInfo, attrs);
         
         // Add clickable "Download" link
@@ -657,6 +830,96 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
     }
     
     /**
+     * Display a voice message
+     */
+    private void displayVoiceMessage(Message message, boolean isSent) throws BadLocationException {
+        // Display voice info
+        SimpleAttributeSet attrs = new SimpleAttributeSet();
+        
+        // Check if it's a private voice message
+        boolean isPrivate = message.getRecipient() != null && !message.getRecipient().isEmpty();
+        
+        if (isPrivate) {
+            StyleConstants.setForeground(attrs, COLOR_PRIVATE);
+            StyleConstants.setBold(attrs, true);
+        } else {
+            StyleConstants.setForeground(attrs, isSent ? COLOR_SENT : COLOR_RECEIVED);
+            StyleConstants.setBold(attrs, true);
+        }
+        
+        String voiceInfo;
+        if (isPrivate) {
+            String direction = isSent ? "to" : "from";
+            String otherUser = isSent ? message.getRecipient() : message.getSender();
+            voiceInfo = String.format("[%s] [PRIVATE %s %s] 🎤 Voice %s ",
+                message.getFormattedTimestamp(),
+                direction,
+                otherUser,
+                message.getFileName());
+        } else {
+            voiceInfo = String.format("[%s] %s 🎤 Voice %s ",
+                message.getFormattedTimestamp(),
+                message.getSender(),
+                message.getFileName());
+        }
+        chatDocument.insertString(chatDocument.getLength(), voiceInfo, attrs);
+        
+        // Add clickable "Play" link
+        SimpleAttributeSet playAttrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(playAttrs, new Color(76, 175, 80));
+        StyleConstants.setUnderline(playAttrs, true);
+        StyleConstants.setBold(playAttrs, true);
+        playAttrs.addAttribute("voiceData", message.getContent());
+        
+        chatDocument.insertString(chatDocument.getLength(), "[▶ Play]", playAttrs);
+        chatDocument.insertString(chatDocument.getLength(), "\n", attrs);
+        
+        // Add mouse listener for playback
+        chatArea.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int pos = chatArea.viewToModel2D(e.getPoint());
+                Element element = chatDocument.getCharacterElement(pos);
+                AttributeSet as = element.getAttributes();
+                
+                if (as.getAttribute("voiceData") != null) {
+                    String voiceData = (String) as.getAttribute("voiceData");
+                    playVoiceMessage(voiceData);
+                }
+            }
+        });
+    }
+    
+    /**
+     * Play a voice message from base64 data
+     */
+    private void playVoiceMessage(String base64Audio) {
+        new Thread(() -> {
+            try {
+                byte[] audioBytes = Base64.getDecoder().decode(base64Audio);
+                
+                // Audio format must match recording format
+                AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+                DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
+                
+                SourceDataLine speaker = (SourceDataLine) AudioSystem.getLine(info);
+                speaker.open(format);
+                speaker.start();
+                
+                // Play audio
+                speaker.write(audioBytes, 0, audioBytes.length);
+                
+                speaker.drain();
+                speaker.close();
+                
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> 
+                    showError("Error playing voice message: " + e.getMessage()));
+            }
+        }).start();
+    }
+    
+    /**
      * Enable or disable chat components
      * 
      * @param enabled Whether to enable the components
@@ -666,6 +929,7 @@ public class ChatClientGUI extends JFrame implements ChatClient.MessageListener 
         sendButton.setEnabled(enabled);
         imageButton.setEnabled(enabled);
         fileButton.setEnabled(enabled);
+        voiceButton.setEnabled(enabled);
         allButton.setEnabled(enabled);
         chatArea.setEnabled(enabled);
         userList.setEnabled(enabled);

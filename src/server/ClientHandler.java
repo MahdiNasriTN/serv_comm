@@ -134,9 +134,30 @@ public class ClientHandler implements Runnable {
                     break;
                     
                 case IMAGE:
-                    // Broadcast image to all other clients
-                    server.broadcast(message, username);
-                    server.log(username + " sent an image: " + message.getFileName());
+                    // Broadcast or send image privately
+                    String imageRecipient = message.getRecipient();
+                    if (imageRecipient != null && !imageRecipient.isEmpty()) {
+                        boolean sent = server.sendPrivateMessage(message, imageRecipient);
+                        if (sent) {
+                            Message confirmation = new Message(
+                                "System",
+                                "Image sent to " + imageRecipient,
+                                Message.MessageType.SYSTEM
+                            );
+                            sendMessage(confirmation);
+                            server.log(username + " -> " + imageRecipient + " (image): " + message.getFileName());
+                        } else {
+                            Message error = new Message(
+                                "System",
+                                "User '" + imageRecipient + "' not found",
+                                Message.MessageType.SYSTEM
+                            );
+                            sendMessage(error);
+                        }
+                    } else {
+                        server.broadcast(message, username);
+                        server.log(username + " sent an image: " + message.getFileName());
+                    }
                     break;
                     
                 case FILE:
@@ -163,6 +184,33 @@ public class ClientHandler implements Runnable {
                     } else {
                         server.broadcast(message, username);
                         server.log(username + " sent a file: " + message.getFileName());
+                    }
+                    break;
+                    
+                case VOICE:
+                    // Broadcast or send voice message privately
+                    String voiceRecipient = message.getRecipient();
+                    if (voiceRecipient != null && !voiceRecipient.isEmpty()) {
+                        boolean sent = server.sendPrivateMessage(message, voiceRecipient);
+                        if (sent) {
+                            Message confirmation = new Message(
+                                "System",
+                                "Voice message sent to " + voiceRecipient,
+                                Message.MessageType.SYSTEM
+                            );
+                            sendMessage(confirmation);
+                            server.log(username + " -> " + voiceRecipient + " (voice): " + message.getFileName());
+                        } else {
+                            Message error = new Message(
+                                "System",
+                                "User '" + voiceRecipient + "' not found",
+                                Message.MessageType.SYSTEM
+                            );
+                            sendMessage(error);
+                        }
+                    } else {
+                        server.broadcast(message, username);
+                        server.log(username + " sent a voice message: " + message.getFileName());
                     }
                     break;
                     

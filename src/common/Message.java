@@ -30,7 +30,8 @@ public class Message implements Serializable {
         LEAVE,       // User left
         USER_LIST,   // List of connected users
         IMAGE,       // Image message (content is base64)
-        FILE         // File message (content is base64)
+        FILE,        // File message (content is base64)
+        VOICE        // Voice message (content is base64 audio)
     }
     
     /**

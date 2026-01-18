@@ -226,6 +226,7 @@ public class ChatClient {
                 case LEAVE:
                 case IMAGE:
                 case FILE:
+                case VOICE:
                     // Notify listener
                     if (messageListener != null) {
                         messageListener.onMessageReceived(message);
@@ -299,10 +300,8 @@ public class ChatClient {
             return;
         }
         
-        Message.MessageType type = (recipient != null && !recipient.isEmpty()) ? 
-            Message.MessageType.PRIVATE : Message.MessageType.IMAGE;
-        
-        Message message = new Message(username, imageData, type);
+        // Always use IMAGE type, even for private images
+        Message message = new Message(username, imageData, Message.MessageType.IMAGE);
         message.setFileName(fileName);
         if (recipient != null && !recipient.isEmpty()) {
             message.setRecipient(recipient);
@@ -325,6 +324,28 @@ public class ChatClient {
         
         Message message = new Message(username, fileData, Message.MessageType.FILE);
         message.setFileName(fileName);
+        if (recipient != null && !recipient.isEmpty()) {
+            message.setRecipient(recipient);
+        }
+        
+        output.println(message.toProtocolString());
+    }
+    
+    /**
+     * Send a voice message
+     * 
+     * @param voiceData Base64 encoded audio data
+     * @param duration Duration in seconds
+     * @param recipient The recipient username (null for broadcast)
+     */
+    public void sendVoice(String voiceData, int duration, String recipient) {
+        if (!connected || output == null) {
+            return;
+        }
+        
+        // Always use VOICE type
+        Message message = new Message(username, voiceData, Message.MessageType.VOICE);
+        message.setFileName(duration + "s"); // Store duration in fileName field
         if (recipient != null && !recipient.isEmpty()) {
             message.setRecipient(recipient);
         }
