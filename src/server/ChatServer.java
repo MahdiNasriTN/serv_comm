@@ -51,6 +51,8 @@ public class ChatServer {
             running = true;
             
             log("Chat Server started on port " + port);
+            log("Server is accepting connections on the following addresses:");
+            displayNetworkAddresses();
             log("Waiting for client connections...");
             
             // Main server loop - accept incoming connections
@@ -220,6 +222,42 @@ public class ChatServer {
      */
     public boolean isUsernameTaken(String username) {
         return clients.containsKey(username);
+    }
+    
+    /**
+     * Display all network addresses where the server can be reached
+     */
+    private void displayNetworkAddresses() {
+        try {
+            // Get all network interfaces
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            
+            log("  - localhost (127.0.0.1:" + port + ") - For local connections");
+            
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface networkInterface = interfaces.nextElement();
+                
+                // Skip loopback and inactive interfaces
+                if (networkInterface.isLoopback() || !networkInterface.isUp()) {
+                    continue;
+                }
+                
+                // Get all IP addresses for this interface
+                Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    
+                    // Only show IPv4 addresses (skip IPv6 for simplicity)
+                    if (address instanceof Inet4Address) {
+                        log("  - " + address.getHostAddress() + ":" + port + 
+                            " - For LAN connections (" + networkInterface.getDisplayName() + ")");
+                    }
+                }
+            }
+            
+        } catch (SocketException e) {
+            log("Could not retrieve network addresses: " + e.getMessage());
+        }
     }
     
     /**

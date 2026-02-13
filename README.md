@@ -194,6 +194,79 @@ To test multi-user functionality:
 - Each client will open in a separate window
 - You can connect with different usernames
 
+### Connecting Over Local Network (LAN)
+
+The server automatically accepts connections from any computer on your local network.
+
+#### On the Server Computer:
+
+1. Start the server as usual:
+   ```bash
+   java -cp bin server.ChatServer
+   ```
+
+2. The server will display all available IP addresses:
+   ```
+   Chat Server started on port 8888
+   Server is accepting connections on the following addresses:
+     - localhost (127.0.0.1:8888) - For local connections
+     - 192.168.1.100:8888 - For LAN connections (Wi-Fi)
+     - 10.0.0.50:8888 - For LAN connections (Ethernet)
+   Waiting for client connections...
+   ```
+
+3. **Note the LAN IP address** (e.g., `192.168.1.100`) - this is what other computers will use to connect
+
+#### On Client Computers:
+
+1. Ensure both computers are on the same network (connected to the same Wi-Fi or router)
+
+2. Start the client application:
+   ```bash
+   java -cp bin client.ChatClientGUI
+   ```
+
+3. In the connection dialog:
+   - **Username:** Enter your desired username
+   - **Server:** Enter the server's LAN IP address (e.g., `192.168.1.100`)
+   - **Port:** `8888` (default)
+   - Click **Connect**
+
+#### Troubleshooting LAN Connections:
+
+**If clients cannot connect:**
+
+1. **Firewall Settings:**
+   - **Windows:** Allow Java through Windows Defender Firewall
+     - Go to: Control Panel → System and Security → Windows Defender Firewall → Allow an app
+     - Add Java or allow port 8888
+   
+   - **Linux:** Allow port 8888
+     ```bash
+     sudo ufw allow 8888/tcp
+     ```
+   
+   - **macOS:** Allow Java in System Preferences → Security & Privacy → Firewall
+
+2. **Network Connectivity:**
+   - Verify both computers are on the same network
+   - Test connectivity with ping:
+     ```bash
+     ping 192.168.1.100
+     ```
+
+3. **Server IP Address:**
+   - Make sure you're using the LAN IP (192.168.x.x or 10.0.x.x)
+   - NOT localhost or 127.0.0.1 (these only work on the same computer)
+
+4. **Port Conflicts:**
+   - Ensure no other application is using port 8888
+   - You can use a custom port:
+     ```bash
+     java -cp bin server.ChatServer 9999
+     ```
+     Then connect clients to port 9999
+
 ---
 
 ## Usage Guide
@@ -448,19 +521,47 @@ Client-side components.
 
 ### Server won't start
 - **Issue:** Port 8888 already in use
-- **Solution:** Close other applications using the port or change `DEFAULT_PORT` in `Protocol.java`
+- **Solution:** Close other applications using the port or start server with custom port: `java -cp bin server.ChatServer 9999`
 
-### Client can't connect
-- **Issue:** Server not running or wrong IP/port
-- **Solution:** Ensure server is started first, verify IP address and port
+### Client can't connect (localhost)
+- **Issue:** Server not running or wrong port
+- **Solution:** 
+  - Ensure server is started first
+  - Verify you're using port 8888 (or the custom port if changed)
+  - Use `localhost` or `127.0.0.1` as server address
+
+### Client can't connect (LAN)
+- **Issue:** Cannot connect from another computer on the network
+- **Solution:**
+  - Verify both computers are on the same network
+  - Use the server's LAN IP address (shown when server starts), NOT localhost
+  - Check firewall settings on server computer (allow port 8888)
+  - Test network connectivity: `ping <server-ip>`
+  - Ensure server is not bound to localhost only (our implementation binds to all interfaces by default)
+
+### Firewall blocking connections
+- **Issue:** Firewall preventing incoming connections
+- **Solution:**
+  - **Windows:** Windows Defender Firewall → Allow an app → Add Java
+  - **Linux:** `sudo ufw allow 8888/tcp`
+  - **macOS:** System Preferences → Security & Privacy → Firewall → Allow Java
 
 ### Voice recording doesn't work
 - **Issue:** Microphone not available
-- **Solution:** Check microphone permissions and availability
+- **Solution:** Check microphone permissions and availability in system settings
 
 ### Images/Files don't send
 - **Issue:** File too large
-- **Solution:** Compress images or split large files
+- **Solution:** 
+  - Images: Maximum 5MB (compress if needed)
+  - Files: Maximum 10MB (split large files)
+
+### Getting server IP address
+- **Issue:** Don't know which IP to use for LAN connections
+- **Solution:** 
+  - The server displays all available IP addresses when it starts
+  - Look for addresses starting with `192.168.x.x` or `10.0.x.x` (these are LAN addresses)
+  - Alternatively, run `ipconfig` (Windows) or `ifconfig` (Linux/Mac) on the server computer
 
 ---
 
